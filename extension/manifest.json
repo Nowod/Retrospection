@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "回溯 · Retrospection",
+  "version": "1.0.0",
+  "description": "每个输入框都有自己的记忆。按最近 7 天输入频次排序，一键回填历史内容。",
+  "minimum_chrome_version": "114",
+  "permissions": ["storage"],
+  "optional_permissions": ["privacy"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "回溯 · 输入历史",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["context.js", "fields.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": false
+    }
+  ]
+}

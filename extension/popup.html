@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>回溯设置</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="popup.js" type="module"></script>
+</head>
+<body>
+  <header><h1>设置</h1></header>
+  <main>
+    <section class="controls" aria-label="插件设置">
+      <label class="setting">
+        <span class="setting-copy"><strong>输入历史</strong><small id="history-note">记录输入，仅在空框时显示</small></span>
+        <input id="enabled" type="checkbox" role="switch" aria-describedby="history-note" disabled><span class="switch" aria-hidden="true"></span>
+      </label>
+      <label class="setting">
+        <span class="setting-copy"><strong>当前网站</strong><small id="site-name">正在识别网站…</small></span>
+        <input id="site-enabled" type="checkbox" role="switch" aria-describedby="site-name" disabled><span class="switch" aria-hidden="true"></span>
+      </label>
+    </section>
+    <section class="native-controls" aria-label="Chrome 原生历史设置">
+      <label class="setting" for="native-enabled">
+        <span class="setting-copy"><strong>Chrome 输入建议</strong><small id="native-note">全局生效，会同时影响地址自动填充</small></span>
+        <input id="native-enabled" type="checkbox" role="switch" aria-describedby="native-note native-status" disabled><span class="switch" aria-hidden="true"></span>
+      </label>
+      <div class="native-actions" id="native-actions"><span id="native-status" role="status">正在读取设置…</span><button id="native-grant" type="button" hidden>授权管理</button><button id="native-release" type="button" hidden>恢复原设置</button></div>
+    </section>
+    <div class="data-actions"><button id="clear-site" type="button" disabled>清空本站<span id="site-record-count"></span></button><button id="clear-all" type="button" disabled>清空全部</button></div>
+    <section id="confirmation" class="confirmation" aria-label="确认清空历史" hidden>
+      <p id="confirmation-message"></p><div><button id="cancel-clear" type="button">取消</button><button id="confirm-clear" class="danger" type="button">确认清空</button></div>
+    </section>
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>

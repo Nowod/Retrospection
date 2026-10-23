@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="UTF-8">
+<title>页面上下文测试</title>
+<style>
+  body { padding: 24px; font: 14px sans-serif; }
+  input { display: block; margin: 12px 0; padding: 10px; width: 300px; }
+  button { margin: 4px; }
+  [role="dialog"] { margin: 20px; padding: 20px; border: 1px solid #aaa; }
+  #outside { position: fixed; right: 20px; top: 20px; }
+  .ant-breadcrumb > span + span::before { content: " / "; }
+</style>
+<main id="workspace"></main>
+<div id="decoy" hidden><div role="tablist"><button role="tab" aria-selected="true">隐藏的无关页签</button></div></div>
+<button id="outside">离开</button>
+<script>
+  const mode = new URLSearchParams(location.search).get("mode") || "aria";
+  const names = mode === "breadcrumb" ? ["客户资料", "合同资料"]
+    : mode === "element" ? ["产品管理", "订单管理"] : ["仓库管理", "门店管理"];
+  let current = 0;
+  let entity = "A";
+  const dynamicId = () => "rc-generated-" + crypto.randomUUID();
+
+  function openModal(kind = "dictionary") {
+    document.querySelector('[role="dialog"]')?.remove();
+    const dialog = document.createElement("section");
+    dialog.setAttribute("role", "dialog");
+    const titleId = dynamicId();
+    const fieldId = kind === "dictionary" ? "dictNo" : dynamicId();
+    dialog.setAttribute("aria-labelledby", titleId);
+    dialog.innerHTML = `<h2 id="${titleId}">${kind === "dictionary" ? "新增" : "添加条目"}</h2>
+      <form id="${dynamicId()}">
+        <label for="${fieldId}">${kind === "dictionary" ? "字典编号" : "条目名称"}</label>
+        <input data-testid="modal-field" id="${fieldId}" name="${dynamicId()}" placeholder="请输入内容">
+        <label for="dictName">字典名称</label><input id="dictName" data-testid="other-field">
+        <button data-testid="close-modal" type="button">关闭</button>
+      </form>`;
+    dialog.querySelector("form").addEventListener("submit", event => event.preventDefault());
+    dialog.querySelector('[data-testid="close-modal"]').onclick = () => dialog.remove();
+    document.body.append(dialog);
+  }
+
+  function render() {
+    document.querySelector('[role="dialog"]')?.remove();
+    const tabIds = names.map(dynamicId);
+    const panelId = dynamicId();
+    const useTabs = mode !== "breadcrumb";
+    const navClass = mode === "element" ? "el-tabs__nav" : "ant-tabs-nav";
+    const workspace = document.querySelector("#workspace");
+    workspace.className = mode === "element" ? "el-tabs" : "ant-tabs";
+    workspace.innerHTML = `<nav class="ant-breadcrumb" aria-label="Breadcrumb">
+      <span class="ant-breadcrumb-link">项目 ${entity}</span>
+      <span class="ant-breadcrumb-link" aria-current="page">${useTabs ? "工作台" : names[current]}</span>
+      </nav>
+      <div ${useTabs ? `role="tablist" class="${navClass}"` : ""}>
+      ${names.map((name, index) => `<button data-testid="tab-${index}" id="${tabIds[index]}"
+        ${useTabs ? `${mode === "element" ? "" : `role="tab" aria-selected="${index === current}"`} aria-controls="${panelId}"` : ""}
+        ${mode === "element" ? `class="el-tabs__item ${index === current ? "is-active" : ""}"` : ""}>
+        <span class="ant-badge"><span>${name}</span><sup class="ant-badge-count">${Math.floor(Math.random() * 100)}</sup></span>
+      </button>`).join("")}</div>
+      <section id="${panelId}" ${useTabs ? `role="tabpanel" aria-labelledby="${tabIds[current]}"` : ""}>
+        <form id="${dynamicId()}"><label for="plainName">名称</label><input data-testid="plain-field" id="plainName" name="${dynamicId()}"></form>
+        <button data-testid="open-modal">新增</button><button data-testid="open-entry">添加条目</button>
+        <button data-testid="entity">切换实体 ${entity}</button>
+      </section>`;
+    workspace.querySelector("form").addEventListener("submit", event => event.preventDefault());
+    names.forEach((_, index) => workspace.querySelector(`[data-testid="tab-${index}"]`).onclick = () => { current = index; render(); });
+    workspace.querySelector('[data-testid="open-modal"]').onclick = () => openModal();
+    workspace.querySelector('[data-testid="open-entry"]').onclick = () => openModal("entry");
+    workspace.querySelector('[data-testid="entity"]').onclick = () => { entity = entity === "A" ? "B" : "A"; render(); };
+  }
+  render();
+</script>
+</html>

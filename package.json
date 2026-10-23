@@ -1,0 +1,21 @@
+{
+  "name": "retrospection",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "独立记录每个输入框的历史，按最近 7 天使用次数排序的 Chrome 扩展。",
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test": "node --test tests/*.test.js",
+    "test:browser": "node tests/browser.mjs",
+    "test:fields-browser": "node tests/fields-browser.mjs",
+    "test:lifecycle-browser": "node tests/lifecycle-browser.mjs",
+    "test:native-browser": "node tests/native-browser.mjs",
+    "test:all": "npm run check && npm test && npm run test:browser && npm run test:fields-browser && npm run test:lifecycle-browser && npm run test:native-browser",
+    "demo": "python3 -m http.server 4173 --bind 127.0.0.1",
+    "package": "python3 scripts/package.py"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

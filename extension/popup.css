@@ -1,0 +1,35 @@
+:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; color: #29332e; background: #fff; font-synthesis: none; -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; }
+body { width: 292px; margin: 0; font-size: 12px; }
+header { padding: 12px 14px 2px; }
+h1 { font-size: 13px; font-weight: 600; margin: 0; }
+main { padding: 0 14px 12px; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .4; }
+button:focus-visible, input:focus-visible + .switch { outline: 2px solid #527b5b; outline-offset: 3px; }
+.setting { display: flex; align-items: center; gap: 10px; position: relative; padding: 10px 0; cursor: pointer; }
+.controls .setting + .setting, .native-controls { border-top: 1px solid #edf0ee; }
+.setting-copy { flex: 1; min-width: 0; padding-right: 44px; }
+.setting strong { display: block; font-size: 12px; font-weight: 500; }
+.setting small { display: block; margin-top: 3px; color: #6e7872; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.setting input { position: absolute; opacity: 0; width: 32px; height: 19px; right: 0; top: 50%; transform: translateY(-50%); margin: 0; z-index: 1; cursor: pointer; }
+.switch { position: absolute; right: 0; width: 32px; height: 19px; border-radius: 20px; background: #cdd4cf; padding: 3px; pointer-events: none; }
+.switch::after { content: ""; display: block; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0002; }
+input:checked + .switch { background: #527b5b; }
+input:checked + .switch::after { transform: translateX(13px); }
+input:disabled + .switch { opacity: .45; }
+.native-actions { display: flex; align-items: center; gap: 8px; padding: 0 0 9px; font-size: 10px; color: #6e7872; }
+.native-actions[hidden] { display: none; }
+.native-actions button { margin-left: auto; white-space: nowrap; }
+button { border: 1px solid #dce2de; border-radius: 5px; background: #fff; color: #485a4e; padding: 6px 9px; font-size: 11px; }
+button:hover:not(:disabled) { background: #f4f7f4; }
+.data-actions { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #edf0ee; padding-top: 10px; }
+.data-actions button span { margin-left: 5px; color: #77817a; }
+.confirmation { padding: 12px; margin-top: 12px; border: 1px solid #ecd8cf; border-radius: 6px; background: #fff8f4; }
+.confirmation p { margin: 0 0 10px; font-size: 12px; line-height: 1.5; }
+.confirmation > div { display: flex; justify-content: flex-end; gap: 8px; }
+.confirmation .danger { color: #a3432b; border-color: #e8c8bb; }
+.message { margin: 12px 0 0; color: #52745a; font-size: 11px; line-height: 1.5; }
+.message:empty { display: none; }
+.message.error { color: #a3432b; }
