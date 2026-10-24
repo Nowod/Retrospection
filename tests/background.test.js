@@ -13,6 +13,7 @@ test("真实 worker 消息处理：隔离、并发写入、权限、暂停与清
       onMessage: { addListener: fn => { listener = fn; } }
     },
     tabs: { query: async () => [], sendMessage: async () => {} },
+    permissions: { contains: async () => false, onAdded: { addListener: () => {} } },
     storage: { local: {
       setAccessLevel: async options => { accessLevel = options.accessLevel; },
       get: async key => {
@@ -41,6 +42,36 @@ test("真实 worker 消息处理：隔离、并发写入、权限、暂停与清
     await send({ type: "GET_HISTORY", scope: "A" });
     assert.equal(accessLevel, "TRUSTED_CONTEXTS");
   });
+  await t.test("网站默认关闭，读取、保存和删除均不读写历史", async () => {
+    for (const type of ["GET_HISTORY", "RECORD", "DELETE"]) {
+      const result = await send({ type, scope: "A", value: "尚未开启" });
+      assert.equal(result.ok, true);
+      assert.equal(result.enabled, false);
+      assert.deepEqual(result.records, []);
+      assert.deepEqual(store, {});
+    }
+  });
+  await t.test("旧版默认开启不会自动启用网站；手动开启只作用于指定网站", async () => {
+    store.settings = { enabled: true, disabledOrigins: [] };
+    assert.equal((await send({ type: "GET_HISTORY", scope: "A" })).enabled, false);
+    for (let i = 0; i < 2; i++) {
+      const status = await send({ type: "SET_SITE_ENABLED", origin: "https://a.test/form", enabled: true }, popup);
+      assert.deepEqual(status.settings.enabledOrigins, ["https://a.test"]);
+    }
+    assert.equal((await send({ type: "GET_HISTORY", scope: "A" })).enabled, true);
+    assert.equal((await send({ type: "RECORD", scope: "A", value: "未开启的网站" },
+      { ...content, url: "https://b.test/form" })).enabled, false);
+  });
+  await t.test("旧总开关关闭不妨碍已启用网站，旧开关消息不再接受", async () => {
+    store.settings.enabled = false;
+    assert.equal((await send({ type: "GET_HISTORY", scope: "A" })).enabled, true);
+    assert.deepEqual((await send({ type: "STATUS" }, popup)).settings, { enabledOrigins: ["https://a.test"] });
+    const before = structuredClone(store);
+    assert.equal((await send({ type: "SET_ENABLED", enabled: false }, popup)).error, "UNKNOWN_MESSAGE");
+    assert.deepEqual(store, before);
+    await send({ type: "SET_SITE_ENABLED", origin: "https://a.test", enabled: true }, popup);
+    assert.equal(Object.hasOwn(store.settings, "enabled"), false);
+  });
   await t.test("两个字段、两个网站，即使内容相同也互不混用", async () => {
     await send({ type: "RECORD", scope: "A", value: "内容" });
     assert.equal((await send({ type: "GET_HISTORY", scope: "B" })).records.length, 0);
@@ -57,6 +88,9 @@ test("真实 worker 消息处理：隔离、并发写入、权限、暂停与清
   await t.test("网页上下文无法读取全站数据或清空其他网站；无痕不记录", async () => {
     assert.equal((await send({ type: "STATUS" })).error, "FORBIDDEN");
     assert.equal((await send({ type: "CLEAR", target: "all" })).error, "FORBIDDEN");
+    for (const type of ["GET_NATIVE_HISTORY", "SET_NATIVE_HISTORY"]) {
+      assert.equal((await send({ type, enabled: false })).error, "FORBIDDEN");
+    }
     assert.equal((await send({ type: "RECORD", scope: "private", value: "隐私" }, { ...content, tab: { id: 1, incognito: true } })).error, "UNSUPPORTED_PAGE");
   });
   await t.test("暂停本站后不再读取或记录，恢复后原记录仍在", async () => {
@@ -73,13 +107,28 @@ test("真实 worker 消息处理：隔离、并发写入、权限、暂停与清
     assert.equal((await send({ type: "RECORD", scope: "quota", value: "重试" })).ok, true);
   });
   await t.test("清空本站不影响其他网站，全局清空保留启用设置", async () => {
+    await send({ type: "SET_SITE_ENABLED", origin: "https://b.test", enabled: true }, popup);
     await send({ type: "RECORD", scope: "other", value: "其他站点" }, { ...content, url: "https://b.test/form" });
     let result = await send({ type: "CLEAR", target: "site", origin: "https://a.test" }, popup);
     assert.equal(result.stats.records, 1);
     assert.equal(result.stats.siteRecords, 0);
     result = await send({ type: "CLEAR", target: "all" }, popup);
     assert.equal(result.stats.records, 0);
-    assert.equal(store.settings.enabled, true);
+    assert.equal(Object.hasOwn(store.settings, "enabled"), false);
+    assert.deepEqual(store.settings.enabledOrigins.sort(), ["https://a.test", "https://b.test"]);
+  });
+  await t.test("停用网站保留旧记录且不可删除或迁移，重新开启后恢复原历史", async () => {
+    await send({ type: "RECORD", scope: "kept-old", value: "保留历史" });
+    await send({ type: "SET_SITE_ENABLED", origin: "https://a.test", enabled: false }, popup);
+    const before = structuredClone(store);
+    for (const type of ["GET_HISTORY", "RECORD", "DELETE"]) {
+      const result = await send({ type, scope: "kept-new", legacyScope: "kept-old", value: "保留历史" });
+      assert.equal(result.enabled, false);
+      assert.deepEqual(result.records, []);
+      assert.deepEqual(store, before);
+    }
+    await send({ type: "SET_SITE_ENABLED", origin: "https://a.test", enabled: true }, popup);
+    assert.equal((await send({ type: "GET_HISTORY", scope: "kept-old" })).records[0].value, "保留历史");
   });
   await t.test("同类弹窗导入旧字段历史，累计次数只合并一次且保留隔离", async () => {
     await send({ type: "RECORD", scope: "dict-A-old", value: "共享条目" });
@@ -105,7 +154,7 @@ test("真实 worker 消息处理：隔离、并发写入、权限、暂停与清
     for (const scope of [null, "", 42, "x".repeat(12001)]) {
       assert.equal((await send({ type: "GET_HISTORY", scope })).error, "INVALID_SCOPE");
     }
-    assert.equal((await send({ type: "SET_ENABLED", enabled: "false" }, popup)).error, "INVALID_SETTING");
+    assert.equal((await send({ type: "SET_SITE_ENABLED", origin: "https://a.test", enabled: "false" }, popup)).error, "INVALID_SETTING");
     assert.equal((await send({ type: "CLEAR", target: "invalid" }, popup)).error, "INVALID_TARGET");
     assert.deepEqual(store, before);
   });

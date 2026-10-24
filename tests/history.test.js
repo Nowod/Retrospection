@@ -66,13 +66,32 @@ test("旧数据或损坏的数据可安全读取，不会渲染对象或重复�
   assert.deepEqual(normalizeHistory(null, now), { version: 1, records: [] });
 });
 
-test("全局与站点暂停彼此独立，损坏设置恢复默认值", () => {
-  assert.equal(enabledFor(null, "https://example.com"), true);
-  assert.equal(enabledFor({ enabled: false }, "https://example.com"), false);
-  const config = normalizeSettings({ enabled: true, disabledOrigins: ["https://a.test", "https://a.test", null, 1] });
-  assert.equal(enabledFor(config, "https://a.test"), false);
-  assert.equal(enabledFor(config, "https://b.test"), true);
-  assert.deepEqual(config.disabledOrigins, ["https://a.test"]);
+test("新安装、旧版默认开启和损坏的网站设置均不会隐式启用网站", () => {
+  for (const settings of [null, {}, { enabled: true }, { enabled: true, disabledOrigins: [] },
+    { enabledOrigins: "https://a.test" }, { enabledOrigins: [null, 1, "*", "file://a"] }]) {
+    assert.equal(enabledFor(settings, "https://a.test"), false);
+    assert.equal(enabledFor(settings, "https://b.test"), false);
+    assert.deepEqual(normalizeSettings(settings).enabledOrigins, []);
+  }
+});
+
+test("仅手动开启的网站可用，协议、端口和子域不同均需单独开启", () => {
+  const config = normalizeSettings({ enabled: true, enabledOrigins: ["https://a.test", "https://a.test", null, 1] });
+  assert.deepEqual(config.enabledOrigins, ["https://a.test"]);
+  assert.equal(enabledFor(config, "https://a.test"), true);
+  for (const origin of ["https://b.test", "http://a.test", "https://a.test:8443", "https://sub.a.test"]) {
+    assert.equal(enabledFor(config, origin), false);
+  }
+});
+
+test("旧总开关不再影响网站启用状态，读取设置时移除该字段", () => {
+  for (const enabled of [false, true]) {
+    const config = { enabled, enabledOrigins: ["https://a.test"] };
+    assert.deepEqual(normalizeSettings(config), { enabledOrigins: ["https://a.test"] });
+    assert.equal(enabledFor(config, "https://a.test"), true);
+    assert.equal(enabledFor(config, "https://b.test"), false);
+    assert.equal(config.enabled, enabled);
+  }
 });
 
 test("合并历史累加同毫秒的真实使用，过滤过期事件且不修改来源", () => {

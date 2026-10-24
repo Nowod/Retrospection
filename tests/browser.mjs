@@ -50,7 +50,51 @@ try {
     console.log(`PASS ${passed}: ${name}`);
   };
 
+  let popup;
   await page.goto(`${base}/fixture.html`);
+  await check("仅保留两个开关，网站默认停用，手动开启后持久化且不受旧总开关影响", async () => {
+    const popupEvent = context.waitForEvent("page");
+    await worker.evaluate(url => chrome.tabs.create({ url, active: false }), `chrome-extension://${extensionId}/popup.html`);
+    popup = await popupEvent;
+    popup.setDefaultTimeout(8000);
+    await popup.waitForLoadState();
+    await poll(() => popup.locator("#site-name").textContent(), name => name === `127.0.0.1:${port}`, "popup origin");
+    await popup.waitForFunction(() => !document.querySelector("#site-enabled").disabled);
+    assert.equal(await popup.getByRole("switch").count(), 2);
+    assert.deepEqual(await popup.locator('.setting strong').allTextContents(), ["当前网站", "浏览器自动填充"]);
+    assert.equal(await popup.locator("#site-enabled").isChecked(), false);
+    assert.equal(await popup.locator("#all-record-count").textContent(), "0 条");
+    await page.locator("#first").fill("未开启时不记录");
+    await page.locator("#first").press("Enter");
+    await page.locator("#outside").click();
+    await popup.evaluate(() => chrome.runtime.sendMessage({ type: "STATUS" }));
+    assert.equal(await record("未开启时不记录"), null);
+    await page.locator("#first").fill("");
+    await page.locator("#first").press("ArrowDown");
+    assert.equal(await host(page).isVisible(), false);
+
+    await worker.evaluate(() => chrome.storage.local.set({ settings: { enabled: false, enabledOrigins: [] } }));
+    await popup.reload();
+    await popup.waitForFunction(() => !document.querySelector("#site-enabled").disabled);
+    await popup.locator("#site-enabled").check();
+    await poll(() => allStorage(), all => all.settings?.enabledOrigins.includes(base), "site opted in despite old master setting");
+    assert.deepEqual((await allStorage()).settings, { enabledOrigins: [base] });
+
+    const unopened = await context.newPage();
+    await unopened.goto(`${base.replace("127.0.0.1", "localhost")}/fixture.html`);
+    await save(unopened, "#first", "其他网站仍不开启");
+    await popup.evaluate(() => chrome.runtime.sendMessage({ type: "STATUS" }));
+    assert.equal(await record("其他网站仍不开启"), null);
+    assert.equal(await host(unopened).isVisible(), false);
+    await unopened.close();
+    await page.bringToFront();
+    await page.reload();
+    await popup.reload();
+    await poll(() => popup.locator("#site-name").textContent(), name => name === `127.0.0.1:${port}`, "reopened popup origin");
+    await popup.waitForFunction(() => !document.querySelector("#site-enabled").disabled);
+    assert.equal(await popup.locator("#site-enabled").isChecked(), true);
+  });
+
   await check("无历史时不显示列表；Enter + submit + blur 只计一次", async () => {
     await focus(page, "#first");
     assert.equal(await host(page).isVisible(), false);
@@ -273,6 +317,10 @@ try {
   });
 
   await check("相同 URL 的两个跨域 iframe 独立，刷新后身份仍稳定", async () => {
+    const enabled = await popup.evaluate(origin => chrome.runtime.sendMessage({
+      type: "SET_SITE_ENABLED", origin, enabled: true
+    }), base.replace("127.0.0.1", "localhost"));
+    assert.equal(enabled.ok, true);
     await page.goto(`${base}/frames.html`);
     const left = page.frameLocator("#left");
     const right = page.frameLocator("#right");
@@ -349,21 +397,19 @@ try {
     assert.equal((await record("焦点保留时的草稿")).events.length, 1);
   });
 
-  let popup;
-  await check("真实插件弹窗：网站暂停、恢复、清空且不复活草稿", async () => {
-    const popupEvent = context.waitForEvent("page");
-    await worker.evaluate(url => chrome.tabs.create({ url, active: false }), `chrome-extension://${extensionId}/popup.html`);
-    popup = await popupEvent;
-    popup.setDefaultTimeout(8000);
-    await popup.waitForLoadState();
+  await check("真实插件弹窗：网站暂停、恢复、清空不复活草稿，本站与全部条数正确更新", async () => {
+    await popup.reload();
     await poll(() => popup.locator("#site-name").textContent(), name => name === `127.0.0.1:${port}`, "popup origin");
+    const before = await popup.evaluate(origin => chrome.runtime.sendMessage({ type: "STATUS", origin }), base);
+    await poll(() => popup.locator("#all-record-count").textContent(), text => text === `${before.stats.records} 条`, "total record count");
+    assert.equal(await popup.locator("#site-record-count").textContent(), `${before.stats.siteRecords} 条`);
     await popup.locator("#site-enabled").uncheck();
-    await poll(() => allStorage(), all => all.settings?.disabledOrigins.includes(base), "site paused");
+    await poll(() => allStorage(), all => !all.settings?.enabledOrigins.includes(base), "site paused");
     await page.locator("#first").fill("暂停时不记录");
     await page.locator("#outside").click();
     assert.equal(await record("暂停时不记录"), null);
     await popup.locator("#site-enabled").check();
-    await poll(() => allStorage(), all => !all.settings?.disabledOrigins.includes(base), "site resumed");
+    await poll(() => allStorage(), all => all.settings?.enabledOrigins.includes(base), "site resumed");
     await focus(page, "#first");
     await page.locator("#first").fill("清空时的草稿");
     await popup.locator("#clear-site").click();
@@ -372,10 +418,15 @@ try {
     await page.locator("#outside").click();
     assert.equal(await record("清空时的草稿"), null);
     assert.ok(await record("左侧跨域框")); // localhost is a different origin.
-    await popup.locator("#enabled").uncheck();
-    await poll(() => allStorage(), all => all.settings?.enabled === false, "global paused");
-    await popup.locator("#enabled").check();
-    await poll(() => allStorage(), all => all.settings?.enabled === true, "global resumed");
+    const remaining = await popup.evaluate(origin => chrome.runtime.sendMessage({ type: "STATUS", origin }), base);
+    assert.ok(remaining.stats.records > 0);
+    await poll(() => popup.locator("#all-record-count").textContent(), text => text === `${remaining.stats.records} 条`, "remaining total after clearing site");
+    assert.equal(await popup.locator("#site-record-count").textContent(), "0 条");
+    await popup.locator("#clear-all").click();
+    await popup.locator("#confirm-clear").click();
+    await poll(() => popup.locator("#all-record-count").textContent(), text => text === "0 条", "all cleared count");
+    assert.equal(await popup.locator("#clear-all").isDisabled(), true);
+    assert.equal(await record("左侧跨域框"), null);
   });
 
   await check("严格 CSP 与 Trusted Types 页面中仍可显示样式和保存", async () => {
@@ -699,8 +750,8 @@ try {
     assert.ok(Math.abs(listBox.y - inputBox.y - inputBox.height - 8) < 2);
     await page.screenshot({ path: join(output, "extension-demo.png"), fullPage: true });
     await popup.reload();
-    await popup.locator("#enabled").waitFor({ state: "visible" });
-    await popup.waitForFunction(() => !document.querySelector("#enabled").disabled);
+    await popup.locator("#site-enabled").waitFor({ state: "visible" });
+    await popup.waitForFunction(() => !document.querySelector("#site-enabled").disabled);
     await popup.locator("body").screenshot({ path: join(output, "popup.png") });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("#project").click();

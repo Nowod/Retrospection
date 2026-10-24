@@ -2,11 +2,13 @@ import {
   HISTORY_PREFIX, normalizeHistory, mergeHistories, recordUsage, deleteRecord, rankRecords,
   normalizeSettings, enabledFor, validValue
 } from "./history.js";
+import { initializeNativeHistory, setNativeHistory } from "./native-history.js";
 
 const FIELD_TYPES = new Set(["GET_HISTORY", "RECORD", "DELETE"]);
 const KNOWN_ERRORS = new Set([
   "INVALID_VALUE", "INVALID_SCOPE", "UNSUPPORTED_PAGE", "FORBIDDEN",
-  "INVALID_SETTING", "INVALID_TARGET", "UNKNOWN_MESSAGE"
+  "INVALID_SETTING", "INVALID_TARGET", "UNKNOWN_MESSAGE",
+  "NATIVE_PERMISSION", "NATIVE_LOCKED", "NATIVE_UNAVAILABLE"
 ]);
 
 // Keep storage in trusted extension contexts. Content scripts can only request
@@ -109,18 +111,15 @@ async function getStatus(origin) {
 
 async function handlePopup(message, sender) {
   if (!sender.url?.startsWith(chrome.runtime.getURL(""))) throw new Error("FORBIDDEN");
+  if (message.type === "GET_NATIVE_HISTORY") return initializeNativeHistory();
+  if (message.type === "SET_NATIVE_HISTORY") return setNativeHistory(message.enabled);
   const origin = webOrigin(message.origin);
   if (message.type === "STATUS") return getStatus(origin);
-  if (message.type === "SET_ENABLED") {
-    if (typeof message.enabled !== "boolean") throw new Error("INVALID_SETTING");
-    const config = await settings();
-    config.enabled = message.enabled;
-    await chrome.storage.local.set({ settings: config });
-  } else if (message.type === "SET_SITE_ENABLED") {
+  if (message.type === "SET_SITE_ENABLED") {
     if (!origin || typeof message.enabled !== "boolean") throw new Error("INVALID_SETTING");
     const config = await settings();
-    config.disabledOrigins = config.disabledOrigins.filter(item => item !== origin);
-    if (!message.enabled) config.disabledOrigins.push(origin);
+    config.enabledOrigins = config.enabledOrigins.filter(item => item !== origin);
+    if (message.enabled) config.enabledOrigins.push(origin);
     await chrome.storage.local.set({ settings: config });
   } else if (message.type === "CLEAR") {
     if (message.target !== "all" && (message.target !== "site" || !origin)) throw new Error("INVALID_TARGET");
@@ -145,3 +144,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   // Compatible with versions before promise-returning message listeners.
   return true;
 });
+
+function initializeNativeSetting() {
+  serialize(() => initializeNativeHistory()).catch(() => {});
+}
+
+chrome.permissions.onAdded.addListener(permissions => {
+  if (permissions.permissions?.includes("privacy")) initializeNativeSetting();
+});
+initializeNativeSetting();

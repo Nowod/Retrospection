@@ -73,13 +73,12 @@ export function rankRecords(history, now = Date.now()) {
 
 export function normalizeSettings(settings) {
   return {
-    enabled: typeof settings?.enabled === "boolean" ? settings.enabled : true,
-    disabledOrigins: [...new Set((Array.isArray(settings?.disabledOrigins) ? settings.disabledOrigins : [])
+    enabledOrigins: [...new Set((Array.isArray(settings?.enabledOrigins) ? settings.enabledOrigins : [])
       .filter(value => typeof value === "string" && /^https?:\/\//.test(value)))]
   };
 }
 
 export function enabledFor(settings, origin) {
   const normalized = normalizeSettings(settings);
-  return normalized.enabled && !normalized.disabledOrigins.includes(origin);
+  return normalized.enabledOrigins.includes(origin);
 }

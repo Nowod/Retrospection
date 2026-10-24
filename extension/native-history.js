@@ -1,4 +1,5 @@
 const allowedLevels = new Set(["controllable_by_this_extension", "controlled_by_this_extension"]);
+const configuredKey = "nativeAutofillConfigured";
 
 export async function readNativeHistory(api = chrome) {
   if (!await api.permissions.contains({ permissions: ["privacy"] })) {
@@ -19,13 +20,14 @@ export async function setNativeHistory(enabled, api = chrome) {
   await api.privacy.services.autofillAddressEnabled.set({ value: enabled, scope: "regular" });
   const result = await readNativeHistory(api);
   if (result.enabled !== enabled) throw new Error("NATIVE_LOCKED");
+  await api.storage.local.set({ [configuredKey]: true });
   return result;
 }
 
-export async function releaseNativeHistory(api = chrome) {
+export async function initializeNativeHistory(api = chrome) {
   const state = await readNativeHistory(api);
-  if (state.level === "controlled_by_this_extension") {
-    await api.privacy.services.autofillAddressEnabled.clear({ scope: "regular" });
-  }
-  return readNativeHistory(api);
+  if (!state.granted || !state.canChange) return state;
+  if ((await api.storage.local.get(configuredKey))[configuredKey] === true) return state;
+  // Apply the default once; preserve manual choices across popup and worker restarts.
+  return setNativeHistory(false, api);
 }

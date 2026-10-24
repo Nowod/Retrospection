@@ -1,20 +1,56 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readNativeHistory, setNativeHistory, releaseNativeHistory } from "../extension/native-history.js";
+import { readNativeHistory, setNativeHistory, initializeNativeHistory } from "../extension/native-history.js";
 
 function fixture({ granted = true, enabled = true, level = "controllable_by_this_extension" } = {}) {
   const writes = [];
-  const original = enabled;
+  const store = {};
   const api = {
     permissions: { contains: async () => granted },
+    storage: { local: {
+      get: async key => ({ [key]: store[key] }),
+      set: async values => Object.assign(store, values)
+    } },
     privacy: { services: { autofillAddressEnabled: {
       get: async () => ({ value: enabled, levelOfControl: level }),
-      set: async options => { writes.push(options); enabled = options.value; level = "controlled_by_this_extension"; },
-      clear: async options => { writes.push({ clear: options }); enabled = original; level = "controllable_by_this_extension"; }
+      set: async options => { writes.push(options); enabled = options.value; level = "controlled_by_this_extension"; }
     } } }
   };
-  return { api, writes };
+  return { api, writes, store };
 }
+
+test("首次授权后默认关闭，重复初始化和手动开启后均不覆盖选择", async () => {
+  const { api, writes, store } = fixture({ granted: false });
+  assert.equal((await initializeNativeHistory(api)).granted, false);
+  assert.deepEqual(store, {});
+  assert.deepEqual(writes, []);
+  api.permissions.contains = async () => true;
+  assert.equal((await initializeNativeHistory(api)).enabled, false);
+  assert.equal((await initializeNativeHistory(api)).enabled, false);
+  assert.deepEqual(writes, [{ value: false, scope: "regular" }]);
+  assert.equal(store.nativeAutofillConfigured, true);
+  await setNativeHistory(true, api);
+  assert.equal((await initializeNativeHistory(api)).enabled, true);
+  assert.equal(writes.length, 2);
+});
+
+test("默认关闭遇到策略锁定或写入失败时不标记完成，允许稍后重试", async () => {
+  for (const level of ["not_controllable", "controlled_by_other_extensions"]) {
+    const { api, writes, store } = fixture({ level });
+    assert.equal((await initializeNativeHistory(api)).canChange, false);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(store, {});
+  }
+  const { api, store } = fixture();
+  const setting = api.privacy.services.autofillAddressEnabled;
+  const original = setting.set;
+  setting.set = async () => { throw new Error("API_FAILURE"); };
+  await assert.rejects(initializeNativeHistory(api), /API_FAILURE/);
+  assert.deepEqual(store, {});
+  setting.set = original;
+  assert.equal((await initializeNativeHistory(api)).enabled, false);
+  assert.equal(store.nativeAutofillConfigured, true);
+});
 
 test("未授权时不猜测 Chrome 状态，不读取 privacy API，不改变偏好", async () => {
   const { api, writes } = fixture({ granted: false });
@@ -36,16 +72,8 @@ test("策略锁定或其他扩展控制时不强行写入", async () => {
     const { api, writes } = fixture({ level });
     assert.equal((await readNativeHistory(api)).canChange, false);
     await assert.rejects(setNativeHistory(false, api), /NATIVE_LOCKED/);
-    await releaseNativeHistory(api);
     assert.deepEqual(writes, []);
   }
-});
-
-test("恢复原设置撤销扩展控制，尊重用户原先关闭的设置", async () => {
-  const { api, writes } = fixture({ enabled: false });
-  await setNativeHistory(true, api);
-  assert.equal((await releaseNativeHistory(api)).enabled, false);
-  assert.deepEqual(writes.at(-1), { clear: { scope: "regular" } });
 });
 
 test("无效参数和被外部立即覆盖的设置均不会报告成功", async () => {
@@ -64,12 +92,11 @@ test("权限存在但 Chrome 设置 API 不可用时返回明确错误", async (
   assert.deepEqual(writes, []);
 });
 
-test("设置 API 读取、写入和恢复失败时不报告成功", async () => {
-  for (const method of ["get", "set", "clear"]) {
+test("设置 API 读取和写入失败时不报告成功", async () => {
+  for (const method of ["get", "set"]) {
     const { api } = fixture({ level: "controlled_by_this_extension" });
     api.privacy.services.autofillAddressEnabled[method] = async () => { throw new Error("API_FAILURE"); };
-    const action = method === "get" ? readNativeHistory(api)
-      : method === "set" ? setNativeHistory(false, api) : releaseNativeHistory(api);
+    const action = method === "get" ? readNativeHistory(api) : setNativeHistory(false, api);
     await assert.rejects(action, /API_FAILURE/);
   }
 });

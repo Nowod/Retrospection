@@ -19,9 +19,8 @@ button:focus-visible, input:focus-visible + .switch { outline: 2px solid #527b5b
 input:checked + .switch { background: #527b5b; }
 input:checked + .switch::after { transform: translateX(13px); }
 input:disabled + .switch { opacity: .45; }
-.native-actions { display: flex; align-items: center; gap: 8px; padding: 0 0 9px; font-size: 10px; color: #6e7872; }
-.native-actions[hidden] { display: none; }
-.native-actions button { margin-left: auto; white-space: nowrap; }
+.native-status { margin: 0; padding: 0 0 9px; font-size: 10px; color: #6e7872; }
+.native-status:empty { display: none; }
 button { border: 1px solid #dce2de; border-radius: 5px; background: #fff; color: #485a4e; padding: 6px 9px; font-size: 11px; }
 button:hover:not(:disabled) { background: #f4f7f4; }
 .data-actions { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #edf0ee; padding-top: 10px; }

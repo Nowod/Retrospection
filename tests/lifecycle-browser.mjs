@@ -42,6 +42,7 @@ try {
     await page.goto("about:blank");
     await send({ type: "STATUS" });
     await worker.evaluate(() => chrome.storage.local.clear());
+    assert.equal((await send({ type: "SET_SITE_ENABLED", origin: base, enabled: true })).ok, true);
     await page.goto(`${base}/fixture.html`);
     await evaluate(() => {
       const original = chrome.runtime.sendMessage.bind(chrome.runtime);
@@ -87,21 +88,19 @@ try {
     await saved("组合确认键记录", 2);
   });
 
-  for (const type of ["SET_ENABLED", "SET_SITE_ENABLED"]) {
-    await check(`${type}：保持焦点暂停并恢复，不补记暂停期间的输入`, async () => {
-      await page.locator('#first').click();
-      await poll(() => evaluate(() => lastHistoryEnabled), value => value === true, "initial enabled");
-      await send({ type, origin: base, enabled: false });
-      await poll(() => evaluate(() => lastHistoryEnabled), value => value === false, "paused");
-      await page.locator('#first').fill("暂停期间输入");
-      await send({ type, origin: base, enabled: true });
-      await poll(() => evaluate(() => lastHistoryEnabled), value => value === true, "resumed");
-      await page.locator('#outside').click();
-      await settle();
-      assert.equal(await record("暂停期间输入"), undefined);
-      await save("恢复后编辑");
-    });
-  }
+  await check("保持焦点暂停并恢复网站，不补记暂停期间的输入", async () => {
+    await page.locator('#first').click();
+    await poll(() => evaluate(() => lastHistoryEnabled), value => value === true, "initial enabled");
+    await send({ type: "SET_SITE_ENABLED", origin: base, enabled: false });
+    await poll(() => evaluate(() => lastHistoryEnabled), value => value === false, "paused");
+    await page.locator('#first').fill("暂停期间输入");
+    await send({ type: "SET_SITE_ENABLED", origin: base, enabled: true });
+    await poll(() => evaluate(() => lastHistoryEnabled), value => value === true, "resumed");
+    await page.locator('#outside').click();
+    await settle();
+    assert.equal(await record("暂停期间输入"), undefined);
+    await save("恢复后编辑");
+  });
 
   await check("清空后迟到的保存失败不会让旧草稿在失焦时复活", async () => {
     await page.locator('#first').fill("应被清空的草稿");
@@ -243,7 +242,7 @@ try {
 
   await check("暂停状态读取失败也不恢复记录，重新启用后只记录新编辑", async () => {
     await page.locator('#first').click();
-    await send({ type: "SET_ENABLED", enabled: false });
+    await send({ type: "SET_SITE_ENABLED", origin: base, enabled: false });
     await poll(() => evaluate(() => lastHistoryEnabled), value => value === false, "paused");
     await evaluate(() => {
       const original = chrome.runtime.sendMessage.bind(chrome.runtime);
@@ -255,7 +254,7 @@ try {
     });
     await page.locator('#first').click();
     await page.locator('#first').fill("失败读取期间的暂停输入");
-    await send({ type: "SET_ENABLED", enabled: true });
+    await send({ type: "SET_SITE_ENABLED", origin: base, enabled: true });
     await poll(() => evaluate(() => lastHistoryEnabled), value => value === true, "resumed");
     await page.locator('#outside').click();
     await settle();

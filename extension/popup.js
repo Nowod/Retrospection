@@ -1,5 +1,3 @@
-import { readNativeHistory, setNativeHistory, releaseNativeHistory } from "./native-history.js";
-
 const $ = id => document.getElementById(id);
 let origin = null;
 let status = null;
@@ -8,25 +6,22 @@ let busy = false;
 let nativeBusy = false;
 let nativeListenerAttached = false;
 let nativeReadId = 0;
+let nativeState = null;
 
 function renderNative(state) {
+  nativeState = state;
   $("native-enabled").checked = state.enabled === true;
   $("native-enabled").indeterminate = state.enabled === null;
-  $("native-enabled").disabled = nativeBusy || !state.canChange;
-  $("native-grant").hidden = state.granted;
-  $("native-grant").disabled = nativeBusy;
-  $("native-release").hidden = state.level !== "controlled_by_this_extension";
-  $("native-release").disabled = nativeBusy;
-  $("native-status").textContent = !state.granted ? "授权后读取 Chrome 当前状态" : !state.canChange
+  $("native-enabled").disabled = nativeBusy || (state.granted && !state.canChange);
+  $("native-status").textContent = !state.granted ? "点击开关授权管理" : !state.canChange
     ? (state.level === "controlled_by_other_extensions" ? "此设置由其他扩展控制" : "此设置由浏览器策略锁定")
     : "";
-  $("native-actions").hidden = state.granted && state.canChange && state.level !== "controlled_by_this_extension";
 }
 
 async function refreshNative() {
   const id = ++nativeReadId;
   try {
-    const state = await readNativeHistory();
+    const state = await send("GET_NATIVE_HISTORY");
     if (id !== nativeReadId) return;
     renderNative(state);
     if (state.granted && !nativeListenerAttached) {
@@ -36,18 +31,22 @@ async function refreshNative() {
   } catch {
     if (id !== nativeReadId) return;
     $("native-enabled").disabled = true;
-    $("native-actions").hidden = false;
     $("native-status").textContent = "无法读取 Chrome 设置，请重新打开插件";
   }
 }
 
-async function changeNative(action) {
+async function changeNative(enabled) {
   if (nativeBusy) return;
   nativeBusy = true;
-  for (const id of ["native-enabled", "native-grant", "native-release"]) $(id).disabled = true;
+  $("native-enabled").disabled = true;
   message("");
   try {
-    await action();
+    // Keep the permission request in this switch's user gesture, before any await.
+    if (!nativeState?.granted && !await chrome.permissions.request({ permissions: ["privacy"] })) {
+      message("未授予权限，Chrome 原设置保持不变");
+      return;
+    }
+    await send("SET_NATIVE_HISTORY", { enabled });
   } catch (error) {
     message(error.message === "NATIVE_LOCKED" ? "此设置受策略或其他扩展控制，无法修改" : "无法修改 Chrome 设置，请重试", true);
   } finally {
@@ -56,21 +55,9 @@ async function changeNative(action) {
   }
 }
 
-$("native-grant").addEventListener("click", async () => {
-  // Must run directly inside the click gesture; granting does not change Chrome's setting.
-  try {
-    const granted = await chrome.permissions.request({ permissions: ["privacy"] });
-    if (!granted) message("未授予权限，Chrome 原设置保持不变");
-    await refreshNative();
-  } catch {
-    message("无法申请权限，请重新打开插件后重试", true);
-  }
-});
 $("native-enabled").addEventListener("change", event => {
-  const enabled = event.target.checked;
-  changeNative(() => setNativeHistory(enabled));
+  changeNative(event.target.checked);
 });
-$("native-release").addEventListener("click", () => changeNative(() => releaseNativeHistory()));
 chrome.permissions.onRemoved.addListener(() => refreshNative());
 chrome.permissions.onAdded.addListener(() => refreshNative());
 refreshNative();
@@ -89,20 +76,19 @@ function message(text, error = false) {
 function render(result) {
   status = result;
   const { settings, stats } = result;
-  $("enabled").checked = settings.enabled;
-  $("enabled").disabled = busy;
-  $("site-enabled").checked = Boolean(origin && !settings.disabledOrigins.includes(origin));
-  $("site-enabled").disabled = busy || !origin || !settings.enabled;
+  $("site-enabled").checked = Boolean(origin && settings.enabledOrigins.includes(origin));
+  $("site-enabled").disabled = busy || !origin;
   $("clear-site").disabled = busy || !origin || !stats.siteRecords;
   $("clear-all").disabled = busy || !stats.records;
   $("site-record-count").textContent = origin ? `${stats.siteRecords} 条` : "";
+  $("all-record-count").textContent = `${stats.records} 条`;
 }
 
 async function update(type, details, success = "") {
   if (busy) return;
   busy = true;
   // Keep the user's new switch position while the worker saves it.
-  for (const id of ["enabled", "site-enabled", "clear-site", "clear-all"]) $(id).disabled = true;
+  for (const id of ["site-enabled", "clear-site", "clear-all"]) $(id).disabled = true;
   message("");
   try {
     render(await send(type, details));
@@ -115,7 +101,6 @@ async function update(type, details, success = "") {
   }
 }
 
-$("enabled").addEventListener("change", event => update("SET_ENABLED", { enabled: event.target.checked }));
 $("site-enabled").addEventListener("change", event => update("SET_SITE_ENABLED", { enabled: event.target.checked }));
 
 function confirmClear(target) {
